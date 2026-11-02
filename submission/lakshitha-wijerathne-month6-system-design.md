@@ -95,6 +95,8 @@ Stories/reels, live streaming, ads platform, ML recommendation of non-followed c
 
 > **Note on the brief's numbers.** The brief lists 200 rps average / 1,000 rps peak, but 50M reads/day is already ~580 rps on average. I size for **~3,000 rps peak** so the estimate is internally consistent and leaves headroom for the 50% annual growth.
 
+**Cross-check from the concurrency NFR (100K concurrent users).** An active session issues roughly one API call every 30 s (feed page, like, profile view); notifications and DMs arrive over the already-open WebSocket and cost no request. 100K ÷ 30 s ≈ **3,300 rps at peak**, which matches the ~3,000 rps derived from daily volume. The same 100K users hold **100K WebSocket connections**, sized in §10.1 (~25K per node → 4–6 gateway nodes).
+
 ### 3.2 Fan-out
 
 - 500K posts/day × 200 followers ≈ **100M timeline inserts/day** → ~1,200/s avg, **~6,000/s peak**.
@@ -157,6 +159,9 @@ flowchart TB
     K --> SS
     K --> MOD[Moderation Service]
     K --> AN[Analytics pipeline]
+    GW --> BIL[Billing Service]
+    BIL -- subscription.* --> K
+    BIL --> STRIPE[Stripe]
 
     US --> PGU[(Postgres: users)]
     PS --> PGP[(Postgres: posts)]
@@ -186,6 +191,8 @@ flowchart TB
 | **Search Service** | Index & query users, posts, hashtags | Elasticsearch | `/search` | — | `user.*`, `post.*` | Node.js |
 | **Moderation Service** | Automated classification (text/image), report queue, reviewer tooling | Postgres `moderation_db` | `/reports`, admin API | `moderation.decided` | `post.created`, `media.processed` | Python |
 | **WebSocket Gateway** | Holds client connections, routes real-time events to users | Redis (connection → node map) | WSS | — | Redis pub/sub | Node.js |
+| **Billing Service** | Premium subscriptions via Stripe Checkout, webhook handling (signature-verified, idempotent by Stripe event id), entitlements | Postgres `billing_db` | `/billing/*`, `/webhooks/stripe` | `subscription.activated`, `subscription.cancelled` | `user.deleted` | Node.js |
+| **Analytics pipeline** | Ships consented product events to the analytics platform and a data lake; source of ranking features | S3 data lake | — | — | `post.*`, `user.*`, client events (consent-filtered) | Kafka Connect |
 
 ## 6. API Design
 
@@ -449,9 +456,30 @@ That leaves > 100 ms for the network and client rendering inside the 200 ms targ
 
 **Fan-out lag SLO:** p95 < 5 s from publish to visible in followers' feeds. Lag is a Kafka consumer-lag metric with an alert; the worker scales horizontally up to the partition count.
 
-### 8.5 Ranking
+### 8.5 Ranking (personalised)
 
-`score = (1 + 0.3 · ln(1 + likes)) × 0.5^(ageHours / 6)` — recency with a 6-hour half-life, boosted logarithmically by engagement so viral posts surface without drowning out fresh ones. It is a pure function behind an interface, so it can be A/B-tested or replaced by an ML ranker (features from the analytics pipeline) without touching the rest of the service. Ranking is applied **within a page** of the most recent candidates, which keeps cursor pagination stable.
+Ranking runs in two stages so it stays inside the 200 ms budget:
+
+1. **Candidate generation (cheap, per request).** Up to ~500 candidates: the reader's pushed timeline (Redis ZSET) merged with recent posts from celebrities they follow (pull path, §8.1). Candidates are already scoped to *this reader's* follow graph, so the first personalisation signal is who they follow.
+2. **Scoring (per candidate).**
+
+   `score = recency × engagement × affinity(reader, author) × typePref(reader, postType)`
+
+   | Factor | Formula / source | Personal to the reader? |
+   |---|---|---|
+   | recency | `0.5^(ageHours / 6)` (6-hour half-life) | no |
+   | engagement | `1 + 0.3 · ln(1 + likes + 2·comments + 3·shares)` | no |
+   | **affinity** | `1 + ln(1 + interactions in last 30 days with this author)` — likes, comments, profile visits, DMs | **yes** |
+   | **typePref** | reader's share of engagement by post type (text / image / video), smoothed toward 1 | **yes** |
+   | negative feedback | × 0 for muted / blocked authors, × 0.3 for "show less like this" | **yes** |
+
+   Reader features live in a **feature store** (Redis hash `features:{userId}`, ~200 B/user), updated asynchronously by a consumer of `post.liked`, `comment.created` and client events from the analytics pipeline; a nightly batch job recomputes the 30-day windows. A missing feature defaults to 1, so a new user's feed degrades gracefully to recency × engagement.
+
+**Pagination over a ranked list.** Scores change between requests, so page 1 ranks the full candidate set once and caches the ordered id list for the session (`ranked:{userId}:{sessionId}`, 10-minute TTL). The cursor carries the session id and offset, so later pages read the same snapshot and never repeat or skip posts. Pull-to-refresh starts a new snapshot.
+
+**Evolution.** The scorer is a pure function behind an interface, so it can be A/B-tested and later replaced by a learned model (e.g. gradient-boosted trees predicting P(engage)) trained on the analytics data, with no change to the rest of the service.
+
+**POC scope.** The POC implements stage 1 and the non-personal factors (`services/feed-service/src/ranking.js`); personalisation by follow graph and celebrity pull is real, while affinity, type preference and the feature store are design-only.
 
 ### 8.6 Edge cases
 
@@ -536,6 +564,17 @@ sequenceDiagram
 ### 9.4 Direct message
 
 Client sends over WebSocket → Message Service validates membership, writes to Cassandra (`LOCAL_QUORUM`), acks to sender with server `message_id` (timeuuid gives ordering), emits `message.sent`; recipients' gateway nodes push it; offline recipients get a push notification. Clients sync gaps on reconnect with `GET /conversations/{id}/messages?after=`.
+
+### 9.5 Premium subscription (payment gateway)
+
+1. Client calls `POST /api/billing/checkout` → Billing Service creates a **Stripe Checkout Session** (idempotency key = user id + plan + day) and returns its URL; card data never touches SocialFlow (PCI scope stays with Stripe).
+2. Stripe calls `POST /webhooks/stripe` (public route on Kong without JWT, protected by Stripe's **signature check**). Billing stores the event id first, so a redelivered webhook is a no-op, then upserts the subscription in `billing_db`.
+3. Billing emits `subscription.activated`; User Service sets the `premium` entitlement, which is added as a claim to the next access token so services check it without a call.
+4. Payment failures follow Stripe's dunning; `subscription.cancelled` removes the entitlement at period end.
+
+### 9.6 Analytics events
+
+Clients batch product events (screen views, impressions, dwell time) to `POST /api/events`; together with domain events from Kafka they pass a **consent filter** (users without analytics consent are dropped, IPs truncated) and Kafka Connect writes them to the analytics platform and an S3 data lake. The same data feeds the ranking features in §8.5.
 
 ## 10. Scalability Strategy
 
@@ -697,7 +736,7 @@ Implemented in [`services/`](../services/), run with `docker compose up -d --bui
 |---|---|---|
 | Feed read, end-to-end through Kong | p95 < 200 ms | **p50 23 ms · p95 41 ms** |
 | Feed read, inside feed-service | — | p50 13 ms · p95 25 ms |
-| Post publish through Kong | p95 < 500 ms | 140–580 ms (single samples; first write after start-up is slowest) |
+| Post publish through Kong | p95 < 500 ms | **p50 45 ms · p95 256 ms** (60 sequential posts; the first post after start-up took 612 ms while pools warm up) |
 | Fan-out lag (publish → visible in follower feed) | p95 < 5 s | ~0.3 s |
 | Breaker opens after post-service outage | — | after 5 failed calls; every response still 200 with `degraded: true` |
 
@@ -713,4 +752,4 @@ Implemented in [`services/`](../services/), run with `docker compose up -d --bui
 | Moderation latency vs. publish SLA | Harmful content visible briefly | Publish immediately, classify async (< 1 min); high-risk accounts pre-moderated |
 | Operational complexity | Slower delivery | Shared service template, paved-road CI/CD, managed services (MSK, RDS, ElastiCache) |
 
-**Open questions:** expected share of video (drives transcoding cost); whether premium features need strong payment consistency (likely a separate Billing service with Stripe webhooks); data residency beyond the EU.
+**Open questions:** expected share of video (drives transcoding cost); which premium features to launch first (the Billing service and entitlement flow are designed in §9.5); data residency beyond the EU.

@@ -112,7 +112,7 @@ function diagram({ file, title, nodes, edges, boundaries = [], router = 'ortho',
 
   // 3. Give each between-row segment its own lane so parallel lines don't overlap.
   const lanes = new Map(); // gapRow -> [{ offset, a, b }]
-  const LANE_ORDER = [0, -1, 1, -2, 2, -3, 3, -4, 4];
+  const LANE_ORDER = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6];
   for (const r of routes) {
     if (r.laneGap === undefined) continue;
     const [sx] = port(r.s, r.exit, r.exitFrac);
@@ -225,19 +225,20 @@ diagram({
 });
 
 // ---------------------------------------------------------------- Level 2
-// Columns 0-7 are inside the system boundary; column 8 holds external systems.
+// Columns 0-8 are inside the system boundary; column 9.3 holds external systems.
 diagram({
   file: 'L2-container',
   title: 'SocialFlow - Container Diagram (C4 Level 2)',
-  cellH: 220,
+  cellH: 250,
   cellW: 250,
-  boundaries: [{ id: 'b', name: 'SocialFlow Platform', type: 'Software System', cols: [0, 7], rows: [1, 4] }],
+  laneStep: 11,
+  boundaries: [{ id: 'b', name: 'SocialFlow Platform', type: 'Software System', cols: [0, 8], rows: [1, 4] }],
   nodes: [
     { id: 'user', kind: 'person', name: 'Social Media User', desc: 'Mobile & web', col: 3, row: 0 },
-    { id: 'oauth', kind: 'external', name: 'Identity Providers', tech: 'Google, Facebook', desc: 'OIDC sign-in', col: 8.3, row: 0 },
+    { id: 'oauth', kind: 'external', name: 'Identity Providers', tech: 'Google, Facebook', desc: 'OIDC sign-in', col: 9.3, row: 0 },
     { id: 'spa', kind: 'container', name: 'Web Application', tech: 'React SPA', desc: 'Browser client served from CDN', col: 2, row: 1 },
     { id: 'mobile', kind: 'container', name: 'Mobile Apps', tech: 'Swift / Kotlin', desc: 'iOS and Android clients', col: 4, row: 1 },
-    { id: 'cdn', kind: 'external', name: 'CDN', tech: 'CloudFront', desc: 'Media & static assets', col: 8.3, row: 1 },
+    { id: 'cdn', kind: 'external', name: 'CDN', tech: 'CloudFront', desc: 'Media & static assets', col: 9.3, row: 1 },
     { id: 'registry', kind: 'container', name: 'Service Registry', tech: 'Consul', desc: 'Registration, health checks, DNS discovery', col: 0, row: 2 },
     { id: 'gw', kind: 'container', name: 'API Gateway', tech: 'Kong (DB-less)', desc: 'Routing, JWT, rate limiting, CORS, correlation id', col: 3, row: 2 },
     { id: 'ws', kind: 'container', name: 'WebSocket Gateway', tech: 'Node.js', desc: 'Real-time notifications & DMs', col: 6, row: 2 },
@@ -248,14 +249,17 @@ diagram({
     { id: 'ns', kind: 'container', name: 'Notification Service', tech: 'Node.js', desc: 'In-app, push, email, SMS', col: 4, row: 3 },
     { id: 'media', kind: 'container', name: 'Media Service', tech: 'Go', desc: 'Presigned uploads, transcoding', col: 5, row: 3 },
     { id: 'search', kind: 'container', name: 'Search Service', tech: 'Node.js', desc: 'Users, posts, hashtags', col: 6, row: 3 },
-    { id: 'modsvc', kind: 'container', name: 'Moderation Service', tech: 'Python', desc: 'Classification, report queue', col: 7, row: 3 },
+    { id: 'modsvc', kind: 'container', name: 'Moderation Service', tech: 'Python', desc: 'Classification, report queue, takedowns', col: 7, row: 3 },
+    { id: 'billing', kind: 'container', name: 'Billing Service', tech: 'Node.js', desc: 'Premium subscriptions, Stripe webhooks, entitlements', col: 8, row: 3 },
+    { id: 'payment', kind: 'external', name: 'Payment Gateway', tech: 'Stripe', desc: 'Subscriptions & webhooks', col: 9.3, row: 3 },
+    { id: 'analytics', kind: 'external', name: 'Analytics Platform', desc: 'Product analytics (consented events)', col: 3, row: 5 },
     { id: 'cass', kind: 'database', name: 'Wide-column Store', tech: 'Cassandra', desc: 'Timelines, messages, notifications', col: 0, row: 4 },
-    { id: 'pg', kind: 'database', name: 'Relational DB', tech: 'PostgreSQL', desc: 'users_db, posts_db, feed_db', col: 1, row: 4 },
+    { id: 'pg', kind: 'database', name: 'Relational DB', tech: 'PostgreSQL', desc: 'DB per service: users, posts, feed, media, moderation, billing', col: 1, row: 4 },
     { id: 'redis', kind: 'database', name: 'Cache', tech: 'Redis Cluster', desc: 'Timelines, post cache, counters', col: 2, row: 4 },
-    { id: 'kafka', kind: 'queue', name: 'Event Bus', tech: 'Apache Kafka', desc: 'post.*, user.*, message.*', col: 3, row: 4 },
+    { id: 'kafka', kind: 'queue', name: 'Event Bus', tech: 'Apache Kafka', desc: 'post.*, user.*, message.sent, subscription.*', col: 3, row: 4 },
     { id: 'es', kind: 'database', name: 'Search Index', tech: 'Elasticsearch', desc: 'Users, posts, hashtags', col: 6, row: 4 },
     { id: 's3', kind: 'database', name: 'Media Storage', tech: 'Amazon S3', desc: 'Images & video renditions', col: 7, row: 4 },
-    { id: 'notify', kind: 'external', name: 'Push / Email / SMS', tech: 'APNs, FCM, SES, Twilio', desc: 'Offline delivery', col: 8.3, row: 5 },
+    { id: 'notify', kind: 'external', name: 'Push / Email / SMS', tech: 'APNs, FCM, SES, Twilio', desc: 'Offline delivery', col: 9.3, row: 5 },
   ],
   edges: [
     ['user', 'spa', 'Uses', 'HTTPS'],
@@ -271,9 +275,11 @@ diagram({
     ['gw', 'ps', '/api/posts'],
     ['gw', 'media', '/api/media'],
     ['gw', 'search', '/api/search'],
+    ['gw', 'billing', '/api/billing'],
     ['fs', 'us', 'followers', 'breaker'],
     ['fs', 'ps', 'hydrate', 'breaker'],
     ['ns', 'ws', 'Online delivery'],
+    ['msg', 'ws', 'Live delivery'],
     ['msg', 'cass', 'Messages', 'CQL'],
     ['us', 'pg', 'SQL'],
     ['ps', 'pg', 'SQL'],
@@ -282,15 +288,23 @@ diagram({
     ['ns', 'cass', 'Notifications'],
     ['ps', 'kafka', 'post.*'],
     ['us', 'kafka', 'user.*'],
-    ['kafka', 'fs', 'post.created'],
-    ['kafka', 'ns', 'interactions'],
-    ['kafka', 'search', 'index updates'],
-    ['kafka', 'modsvc', 'new content'],
+    ['msg', 'kafka', 'message.sent'],
+    ['billing', 'kafka', 'subscription.*'],
+    ['fs', 'kafka', 'consumes post.created'],
+    ['ns', 'kafka', 'consumes interactions'],
+    ['search', 'kafka', 'consumes index updates'],
+    ['modsvc', 'kafka', 'consumes new content'],
+    ['media', 'pg', 'Media metadata'],
+    ['modsvc', 'pg', 'Reports, decisions'],
+    ['billing', 'pg', 'Subscriptions'],
+    ['billing', 'payment', 'Charges / webhooks', 'HTTPS'],
+    ['kafka', 'analytics', 'Consented events', 'Kafka Connect'],
     ['search', 'es', 'Index / query'],
     ['media', 's3', 'Stores media'],
     // Long edges routed explicitly around other boxes.
-    ['us', 'oauth', 'Sign-in', 'OIDC', { exit: 'top', entry: 'bottom', via: (h) => [[h.cx(1) - 30, h.gap(1) - 35], [h.cx(8.3), h.gap(1) - 35]] }],
-    ['s3', 'cdn', 'Origin for', '', { exit: 'right', entry: 'left', via: (h) => [[h.right(7) + 50, h.cy(4)], [h.right(7) + 50, h.cy(1) + 17]] }],
+    ['modsvc', 'ps', 'Hide / remove content', 'HTTP', { exit: 'bottom', entry: 'bottom', via: (h) => [[h.cx(7) + 60, h.gap(4) + 60], [h.cx(3) + 75, h.gap(4) + 60]] }],
+    ['us', 'oauth', 'Sign-in', 'OIDC', { exit: 'top', entry: 'bottom', via: (h) => [[h.cx(1) - 30, h.gap(1) - 35], [h.cx(9.3), h.gap(1) - 35]] }],
+    ['s3', 'cdn', 'Origin for', '', { labelPos: -0.7, exit: 'right', entry: 'left', via: (h) => [[h.right(8) + 50, h.cy(4)], [h.right(8) + 50, h.cy(1) + 17]] }],
     ['ns', 'notify', 'Offline delivery', 'HTTPS', { exit: 'bottom', entry: 'left', via: (h) => [[h.cx(4) + 45, h.cy(5)]] }],
   ],
   legend: { text: LEGEND, col: 0, row: 0 },

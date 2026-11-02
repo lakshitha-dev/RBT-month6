@@ -1,0 +1,44 @@
+@startuml L2-container-core
+!include <C4/C4_Container>
+
+' Focused view of the C4 Level 2 diagram: the post -> feed path that the POC implements.
+' The full view with every container is L2-container.puml.
+LAYOUT_TOP_DOWN()
+HIDE_STEREOTYPE()
+skinparam nodesep 70
+skinparam ranksep 70
+title SocialFlow - Container Diagram (C4 Level 2), core path: publish -> fan-out -> read feed
+
+Person(user, "Social Media User", "Mobile & web")
+
+System_Boundary(sf, "SocialFlow Platform") {
+  Container(clients, "Web & Mobile Apps", "React SPA, Swift / Kotlin", "Clients")
+  Container(gateway, "API Gateway", "Kong (DB-less)", "JWT auth, routing, rate limiting, correlation id")
+  Container(registry, "Service Registry", "Consul", "Registration, health checks, DNS discovery")
+
+  Container(userSvc, "User Service", "Node.js / Express", "Profiles, follow graph")
+  Container(postSvc, "Post Service", "Node.js / Express", "Posts, likes; transactional outbox")
+  Container(feedSvc, "Feed Service", "Node.js / Express", "Fan-out worker, timeline cache, ranking")
+
+  ContainerQueue(kafka, "Event Bus", "Apache Kafka", "post.created, user.followed")
+  ContainerDb(pg, "Relational DB", "PostgreSQL", "users_db, posts_db, feed_db")
+  ContainerDb(redis, "Cache", "Redis Cluster", "Timelines, post cache")
+}
+
+Rel(user, clients, "Uses")
+Rel(clients, gateway, "API calls", "HTTPS + JWT")
+Rel_L(gateway, registry, "Resolves upstreams", "DNS SRV")
+Rel(gateway, userSvc, "/api/users")
+Rel(gateway, postSvc, "/api/posts")
+Rel(gateway, feedSvc, "/api/feed")
+Rel(feedSvc, userSvc, "Following", "HTTP + circuit breaker")
+Rel(feedSvc, postSvc, "Hydrate posts", "HTTP + circuit breaker")
+Rel(postSvc, kafka, "1. post.created (outbox)")
+Rel(feedSvc, kafka, "2. Consumes post.created (fan-out)")
+Rel(userSvc, pg, "SQL")
+Rel(postSvc, pg, "SQL")
+Rel(feedSvc, pg, "feed_items (fallback)", "SQL")
+Rel(feedSvc, redis, "3. Timelines (cache-first)", "RESP")
+
+SHOW_LEGEND()
+@enduml

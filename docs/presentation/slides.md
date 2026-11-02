@@ -94,9 +94,30 @@ System design · C4 architecture · Microservices POC
 
 <!-- _class: diagram -->
 
-## C4 Level 2: Containers
+## C4 Level 2: Containers (all 20 containers)
 
-![h:610](../c4/png/L2-container.png)
+![w:1150](../c4/png/L2-container.png)
+
+---
+
+## C4 Level 2: the core path the POC implements
+
+<div class="cols">
+<div>
+
+![h:540](../c4/png/L2-container-core.png)
+
+</div>
+<div>
+
+1. **Publish:** Post Service writes the post and an **outbox** row in one transaction, then emits `post.created` to Kafka
+2. **Fan-out:** Feed Service consumes it and pushes the post id into followers' **Redis** timelines
+3. **Read:** `GET /api/feed` is **cache-first**, falls back to `feed_items`, hydrates posts behind a **circuit breaker**
+
+Every call enters through **Kong** (JWT), and every upstream is found through **Consul**.
+
+</div>
+</div>
 
 ---
 
@@ -170,8 +191,8 @@ System design · C4 architecture · Microservices POC
 2. *Miss* → `feed_items` + async re-warm
 3. **Content Aggregator** — merge celebrity posts
 4. Hydrate 20 posts in **one batch call** — behind a **circuit breaker**
-5. **Ranking Engine**
-   `(1 + 0.3·ln(1+likes)) × 0.5^(age/6h)`
+5. **Ranking Engine** (personalised)
+   recency × engagement × **affinity(reader, author)** × type preference
 6. Opaque cursor → stable mobile paging
 
 </div>

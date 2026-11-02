@@ -18,7 +18,7 @@ The same content is browsable unzipped in this repository:
 | Evaluation criterion | Where to look |
 |---|---|
 | System Design (30) | [Design document](docs/lakshitha-wijerathne-month6-system-design.md): requirements & capacity (§2–3), architecture (§4–7), feed deep dive (§8), scalability (§10), trade-offs (§16), 10× scale (§17); [ADRs](docs/adr/) |
-| C4 Documentation (25) | [L1 context](docs/c4/png/L1-context.png) · [L2 containers](docs/c4/png/L2-container.png) · [L3 feed components](docs/c4/png/L3-feed-components.png); sources in [`docs/c4/`](docs/c4/) |
+| C4 Documentation (25) | [L1 context](docs/c4/png/L1-context.png) · [L2 containers](docs/c4/png/L2-container.png) ([core-path view](docs/c4/png/L2-container-core.png)) · [L3 feed components](docs/c4/png/L3-feed-components.png); sources in [`docs/c4/`](docs/c4/) |
 | Microservices POC (20) | [`services/`](services/), [`gateway/kong.yml`](gateway/kong.yml), [`docker-compose.yml`](docker-compose.yml); see [Run it](#run-it) |
 | Presentation (15) | [Slides (PDF)](docs/presentation/slides.pdf), [talking points](docs/presentation/talking-points.md), [Q&A prep](docs/presentation/qa-prep.md) |
 
@@ -73,7 +73,7 @@ node scripts/demo.mjs                        # end-to-end demo through Kong
 Useful URLs:
 - API gateway: <http://localhost:8000/api/...>
 - Consul UI (registered instances & health): <http://localhost:8500/ui>
-- Breaker status: <http://localhost:8000/api/feed/breakers>
+- Breaker status: `GET /api/feed/breakers` (needs a bearer token like every non-sign-up route; the demo prints it in step 9)
 
 ### Demo scenarios
 
