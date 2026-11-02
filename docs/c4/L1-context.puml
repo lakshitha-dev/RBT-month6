@@ -1,0 +1,34 @@
+@startuml L1-context
+!include <C4/C4_Context>
+
+LAYOUT_TOP_DOWN()
+title SocialFlow - System Context (C4 Level 1)
+
+Person(user, "Social Media User", "Posts, follows, reads the feed, chats. Uses iOS, Android or web.")
+Person(moderator, "Moderator / Admin", "Reviews reported content, manages accounts.")
+
+System(socialflow, "SocialFlow Platform", "Social media platform: profiles, posts, personalised feed, likes/comments, real-time notifications, direct messages, search, moderation.")
+
+System_Ext(oauth, "Identity Providers", "Google, Facebook (OAuth 2.0 / OIDC sign-in)")
+System_Ext(cdn, "CDN", "Amazon CloudFront - edge delivery of images, video and web assets")
+System_Ext(email, "Email Service", "Amazon SES - verification, digests, GDPR exports")
+System_Ext(sms, "SMS Service", "Twilio - phone verification, 2FA")
+System_Ext(push, "Push Notification Services", "Apple APNs, Firebase Cloud Messaging")
+System_Ext(analytics, "Analytics Platform", "Product analytics & dashboards (consented events only)")
+System_Ext(payment, "Payment Gateway", "Stripe - premium subscriptions")
+
+Rel(user, socialflow, "Uses", "HTTPS / WSS")
+Rel(moderator, socialflow, "Moderates content", "HTTPS")
+Rel(user, cdn, "Downloads media", "HTTPS")
+Rel(socialflow, cdn, "Publishes media to", "S3 origin")
+Rel(socialflow, oauth, "Authenticates users with", "OIDC")
+Rel(socialflow, email, "Sends email via", "HTTPS API")
+Rel(socialflow, sms, "Sends SMS via", "HTTPS API")
+Rel(socialflow, push, "Sends push notifications via", "HTTPS/2")
+Rel(socialflow, analytics, "Streams product events to", "HTTPS")
+Rel(socialflow, payment, "Charges subscriptions via", "HTTPS API")
+Rel(payment, socialflow, "Payment events", "Webhooks")
+Rel(push, user, "Delivers notifications to device")
+
+SHOW_LEGEND()
+@enduml

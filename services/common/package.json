@@ -1,0 +1,11 @@
+{
+  "name": "@socialflow/common",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "express": "^5.1.0",
+    "opossum": "^8.1.4",
+    "pino": "^9.5.0"
+  }
+}

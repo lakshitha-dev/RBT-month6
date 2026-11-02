@@ -1,0 +1,161 @@
+name: socialflow
+
+x-service-env: &service-env
+  CONSUL_URL: http://consul:8500
+  KAFKA_BROKERS: kafka:9092
+  REDIS_URL: redis://redis:6379
+  LOG_LEVEL: info
+  KAFKAJS_NO_PARTITIONER_WARNING: "1"
+  # Dev-only signing key; must match the Kong consumer in gateway/kong.yml.
+  # Production: an asymmetric key (RS256) from a secrets manager.
+  JWT_SECRET: socialflow-dev-secret-change-me
+  JWT_ISSUER: socialflow
+
+x-service-deps: &service-deps
+  postgres: { condition: service_healthy }
+  consul: { condition: service_healthy }
+  kafka: { condition: service_healthy }
+
+services:
+  # ---------------------------------------------------------------- infrastructure
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: socialflow
+      POSTGRES_PASSWORD: socialflow
+      POSTGRES_DB: socialflow
+    volumes:
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U socialflow -d feed_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 6
+    healthcheck:
+      # TCP probe: the Kafka CLI tools need >10s of JVM start-up on small machines.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9092"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+
+  # Service registry. Fixed IP because Kong's DNS resolver must be an IP address.
+  consul:
+    image: hashicorp/consul:1.19
+    # 5 s DNS TTL lets Kong cache SRV lookups instead of re-resolving on every request.
+    command: ["agent", "-dev", "-client=0.0.0.0", "-ui", "-hcl", "dns_config { service_ttl { \"*\" = \"5s\" } }"]
+    ports:
+      - "8500:8500"
+    networks:
+      default:
+        ipv4_address: 172.28.0.250
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------------------------------------------------------------- edge
+  kong:
+    image: kong:3.9
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_DNS_RESOLVER: 172.28.0.250:8600
+      KONG_DNS_ORDER: SRV,A,LAST,CNAME
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./gateway/kong.yml:/kong/kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      consul: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------- services
+  # No host ports: every request goes through Kong, and replicas can be scaled
+  # with `docker compose up -d --scale post-service=2`.
+  user-service:
+    build: { context: ./services, args: { SERVICE: user-service } }
+    restart: unless-stopped
+    environment:
+      <<: *service-env
+      PORT: 3001
+      DATABASE_URL: postgres://socialflow:socialflow@postgres:5432/users_db
+    depends_on: *service-deps
+    healthcheck: &service-health
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/health > /dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  post-service:
+    build: { context: ./services, args: { SERVICE: post-service } }
+    restart: unless-stopped
+    environment:
+      <<: *service-env
+      PORT: 3002
+      DATABASE_URL: postgres://socialflow:socialflow@postgres:5432/posts_db
+    depends_on: *service-deps
+    healthcheck: *service-health
+
+  feed-service:
+    build: { context: ./services, args: { SERVICE: feed-service } }
+    restart: unless-stopped
+    environment:
+      <<: *service-env
+      PORT: 3003
+      DATABASE_URL: postgres://socialflow:socialflow@postgres:5432/feed_db
+      # Lowered from the production value (10000) so the demo can show the pull path.
+      CELEBRITY_THRESHOLD: 5
+      # Production uses 30s; shortened so the demo can show the breaker closing again.
+      BREAKER_RESET_TIMEOUT_MS: 10000
+    depends_on:
+      <<: *service-deps
+      redis: { condition: service_healthy }
+    healthcheck: *service-health
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          ip_range: 172.28.1.0/24
+
+volumes:
+  pgdata:

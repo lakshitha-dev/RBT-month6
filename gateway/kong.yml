@@ -1,0 +1,85 @@
+# Kong declarative config (DB-less mode).
+# Upstream hosts are Consul DNS names: Kong resolves <name>.service.consul via the
+# Consul agent (KONG_DNS_RESOLVER) and load-balances across every healthy instance
+# using the SRV records - scaling a service needs no gateway change.
+#
+# Auth: every route except sign-up runs the jwt plugin. Tokens are HS256, issued by
+# user-service at sign-up, with iss=socialflow matching the consumer credential below.
+# Requests without a valid, unexpired token get 401 at the edge and never reach a service.
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: user-service
+    url: http://user-service.service.consul:3001/users
+    connect_timeout: 2000
+    read_timeout: 5000
+    retries: 2
+    routes:
+      # Sign-up is the only unauthenticated call (exact path, POST only).
+      - name: users-signup
+        paths: ["~/api/users$"]
+        methods: [POST]
+        strip_path: true
+      - name: users
+        paths: ["/api/users"]
+        strip_path: true
+        plugins: [{ name: jwt, config: { claims_to_verify: [exp] } }]
+
+  - name: post-service
+    url: http://post-service.service.consul:3002/posts
+    connect_timeout: 2000
+    read_timeout: 5000
+    retries: 2
+    routes:
+      - name: posts
+        paths: ["/api/posts"]
+        strip_path: true
+        plugins: [{ name: jwt, config: { claims_to_verify: [exp] } }]
+    plugins:
+      # Writes are more expensive than reads: tighter per-client limit.
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+          limit_by: ip
+
+  - name: feed-service
+    url: http://feed-service.service.consul:3003/feed
+    connect_timeout: 2000
+    read_timeout: 5000
+    retries: 2
+    routes:
+      - name: feed
+        paths: ["/api/feed"]
+        strip_path: true
+        plugins: [{ name: jwt, config: { claims_to_verify: [exp] } }]
+
+# The token issuer. key = the token's iss claim; secret = JWT_SECRET in docker-compose.yml
+# (dev only - production uses RS256 with the public key here and the private key in a vault).
+consumers:
+  - username: socialflow-users
+    jwt_secrets:
+      - key: socialflow
+        algorithm: HS256
+        secret: socialflow-dev-secret-change-me
+
+plugins:
+  # Generates X-Request-ID at the edge; services log it and forward it downstream.
+  - name: correlation-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid
+      echo_downstream: true
+  - name: rate-limiting
+    config:
+      minute: 600
+      policy: local
+      limit_by: ip
+  - name: cors
+    config:
+      origins: ["*"]
+      methods: [GET, POST, DELETE, OPTIONS]
+      headers: [Content-Type, Authorization, X-Request-ID]
+      exposed_headers: [X-Request-ID, X-Served-By, X-Feed-Source]
+      max_age: 3600

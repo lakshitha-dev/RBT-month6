@@ -1,0 +1,13 @@
+{
+  "name": "post-service",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": { "start": "node src/index.js" },
+  "dependencies": {
+    "@socialflow/common": "1.0.0",
+    "express": "^5.1.0",
+    "kafkajs": "^2.2.4",
+    "pg": "^8.13.1"
+  }
+}

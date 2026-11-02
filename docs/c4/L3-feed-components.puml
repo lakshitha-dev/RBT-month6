@@ -1,0 +1,46 @@
+@startuml L3-feed-components
+!include <C4/C4_Component>
+
+LAYOUT_TOP_DOWN()
+title SocialFlow - Feed Service Components (C4 Level 3)
+
+Container(gateway, "API Gateway", "Kong", "Routes /api/feed")
+ContainerQueue(kafka, "Event Bus", "Kafka", "Topic post.created")
+Container(userSvc, "User Service", "Node.js", "Followers / following")
+Container(postSvc, "Post Service", "Node.js", "Post bodies (batch)")
+Container(registry, "Service Registry", "Consul", "Healthy instances")
+
+Container_Boundary(feed, "Feed Service") {
+  Component(api, "Feed API Controller", "Express route", "GET /feed: validates identity, limit, cursor (index.js)")
+  Component(generator, "Feed Generator", "Module", "Orchestrates a page: cache -> DB fallback -> aggregate -> rank (feed-generator.js)")
+  Component(cache, "Timeline Cache", "ioredis + Lua", "Per-user sorted sets, warm-only pushes, post body cache (timeline-cache.js)")
+  Component(aggregator, "Content Aggregator", "Module", "Merges pushed + celebrity (pulled) posts, hydrates bodies (content-aggregator.js)")
+  Component(ranking, "Ranking Engine", "Pure function", "Recency decay x engagement score (ranking.js)")
+  Component(fanout, "Fan-out Worker", "kafkajs consumer", "Consumes post.created; push to followers or store for pull (fanout-worker.js)")
+  Component(clients, "Service Clients", "opossum + fetch", "Circuit-breaker-wrapped calls resolved via Consul (clients.js)")
+}
+
+ContainerDb(redis, "Redis", "Redis Cluster", "timeline:{user}, author_posts:{author}, post:{id}")
+ContainerDb(feedDb, "Feed Store", "Postgres (POC) / Cassandra", "feed_items, author_posts")
+
+Rel(gateway, api, "GET /feed", "HTTP")
+Rel(api, generator, "getFeed(user, limit, cursor)")
+Rel(generator, cache, "1. Read timeline")
+Rel(generator, feedDb, "2. Fallback on cache miss + re-warm", "SQL")
+Rel(generator, aggregator, "3. Aggregate page")
+Rel(generator, ranking, "4. Rank page")
+Rel(aggregator, cache, "Celebrity posts, cached bodies")
+Rel(aggregator, clients, "Following list, hydrate posts")
+Rel(cache, redis, "ZSET / GET / Lua", "RESP")
+
+Rel(kafka, fanout, "post.created", "consumer group feed-fanout")
+Rel(fanout, clients, "Followers (paged)")
+Rel(fanout, feedDb, "Insert feed_items / author_posts", "SQL")
+Rel(fanout, cache, "pushIfWarm / addAuthorPost")
+
+Rel(clients, registry, "Resolve healthy instance", "HTTP API")
+Rel(clients, userSvc, "GET /users/{id}/followers|following", "HTTP")
+Rel(clients, postSvc, "GET /posts?ids=", "HTTP")
+
+SHOW_LEGEND()
+@enduml

@@ -1,0 +1,9 @@
+{
+  "name": "socialflow-services",
+  "private": true,
+  "workspaces": ["common", "user-service", "post-service", "feed-service"],
+  "scripts": {
+    "test": "node --test \"common/test/*.test.js\" \"feed-service/test/*.test.js\""
+  },
+  "engines": { "node": ">=22" }
+}

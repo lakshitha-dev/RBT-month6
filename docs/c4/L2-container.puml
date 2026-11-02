@@ -1,0 +1,80 @@
+@startuml L2-container
+!include <C4/C4_Container>
+
+LAYOUT_LEFT_RIGHT()
+title SocialFlow - Container Diagram (C4 Level 2)
+
+Person(user, "Social Media User", "Mobile & web")
+
+System_Boundary(sf, "SocialFlow Platform") {
+  Container(spa, "Web Application", "React SPA", "Browser client served from the CDN")
+  Container(mobile, "Mobile Apps", "Swift / Kotlin", "iOS and Android clients")
+
+  Container(gateway, "API Gateway", "Kong (DB-less)", "Routing, JWT auth, rate limiting, CORS, correlation id")
+  Container(ws, "WebSocket Gateway", "Node.js", "Persistent connections for notifications and DMs")
+  Container(registry, "Service Registry", "Consul", "Service registration, health checks, DNS-based discovery")
+
+  Container(userSvc, "User Service", "Node.js / Express", "Accounts, profiles, OAuth linking, follow graph")
+  Container(postSvc, "Post Service", "Node.js / Express", "Posts, likes, comments, shares; transactional outbox")
+  Container(feedSvc, "Feed Service", "Node.js / Express", "Fan-out worker, timeline cache, ranking, feed API")
+  Container(notifSvc, "Notification Service", "Node.js", "In-app, push, email and SMS notifications")
+  Container(msgSvc, "Message Service", "Node.js", "Direct and group messaging, receipts")
+  Container(mediaSvc, "Media Service", "Go", "Presigned uploads, transcoding, thumbnails")
+  Container(searchSvc, "Search Service", "Node.js", "Indexes and queries users, posts, hashtags")
+  Container(modSvc, "Moderation Service", "Python", "Automated classification, report queue")
+
+  ContainerQueue(kafka, "Event Bus", "Apache Kafka", "post.created, user.followed, post.liked, message.sent, user.deleted ...")
+
+  ContainerDb(pg, "Relational DB", "PostgreSQL", "users_db, posts_db, feed_db (database per service)")
+  ContainerDb(redis, "Cache", "Redis Cluster", "Timelines, post cache, counters, sessions, rate limits")
+  ContainerDb(cassandra, "Wide-column Store", "Cassandra", "Durable timelines, messages, notifications")
+  ContainerDb(es, "Search Index", "Elasticsearch", "Users, posts, hashtags")
+  ContainerDb(s3, "Media Storage", "Amazon S3", "Images and video renditions")
+}
+
+System_Ext(cdn, "CDN", "CloudFront")
+System_Ext(oauth, "Identity Providers", "Google, Facebook")
+System_Ext(push, "Push / Email / SMS", "APNs, FCM, SES, Twilio")
+
+Rel(user, spa, "Uses", "HTTPS")
+Rel(user, mobile, "Uses")
+Rel(spa, gateway, "API calls", "HTTPS/JSON")
+Rel(mobile, gateway, "API calls", "HTTPS/JSON")
+Rel(spa, ws, "Real-time", "WSS")
+Rel(mobile, ws, "Real-time", "WSS")
+Rel(mobile, cdn, "Loads media", "HTTPS")
+
+Rel(gateway, userSvc, "/api/users", "HTTP")
+Rel(gateway, postSvc, "/api/posts", "HTTP")
+Rel(gateway, feedSvc, "/api/feed", "HTTP")
+Rel(gateway, mediaSvc, "/api/media", "HTTP")
+Rel(gateway, searchSvc, "/api/search", "HTTP")
+Rel(gateway, msgSvc, "/api/conversations", "HTTP")
+Rel(gateway, registry, "Resolves upstreams", "DNS SRV")
+
+Rel(feedSvc, userSvc, "Followers / following", "HTTP + circuit breaker")
+Rel(feedSvc, postSvc, "Hydrate posts", "HTTP + circuit breaker")
+
+Rel(userSvc, pg, "Reads/writes", "SQL")
+Rel(postSvc, pg, "Reads/writes", "SQL")
+Rel(feedSvc, redis, "Timelines", "RESP")
+Rel(feedSvc, cassandra, "Durable timelines", "CQL")
+Rel(msgSvc, cassandra, "Messages", "CQL")
+Rel(notifSvc, cassandra, "Notifications", "CQL")
+Rel(searchSvc, es, "Index / query", "HTTPS")
+Rel(mediaSvc, s3, "Stores media", "HTTPS")
+Rel(s3, cdn, "Origin for")
+Rel(ws, redis, "Connection routing", "pub/sub")
+
+Rel(postSvc, kafka, "Publishes post.*", "Kafka")
+Rel(userSvc, kafka, "Publishes user.*", "Kafka")
+Rel(kafka, feedSvc, "post.created -> fan-out", "Kafka")
+Rel(kafka, notifSvc, "Interactions", "Kafka")
+Rel(kafka, searchSvc, "Index updates", "Kafka")
+Rel(kafka, modSvc, "New content", "Kafka")
+Rel(notifSvc, ws, "Online delivery")
+Rel(notifSvc, push, "Offline delivery", "HTTPS")
+Rel(userSvc, oauth, "Sign-in", "OIDC")
+
+SHOW_LEGEND()
+@enduml
