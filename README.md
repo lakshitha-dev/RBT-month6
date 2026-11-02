@@ -2,6 +2,28 @@
 
 Design and proof-of-concept for **SocialFlow**, a social media platform for 1M+ MAU with a < 200 ms feed, < 500 ms post publish and 99.9% availability.
 
+**Author:** Lakshitha Wijerathne · Engineer Track, Month 6
+
+## Submission
+
+| Required file | Contents | Download |
+|---|---|---|
+| [`lakshitha-wijerathne-month6-system-design.md`](submission/lakshitha-wijerathne-month6-system-design.md) | Design document | [download](https://github.com/lakshitha-dev/RBT-month6/raw/main/submission/lakshitha-wijerathne-month6-system-design.md) |
+| [`lakshitha-wijerathne-month6-c4-diagrams.zip`](submission/lakshitha-wijerathne-month6-c4-diagrams.zip) | All C4 diagrams, L1–L3 (draw.io, PlantUML, PNG) | [download](https://github.com/lakshitha-dev/RBT-month6/raw/main/submission/lakshitha-wijerathne-month6-c4-diagrams.zip) |
+| [`lakshitha-wijerathne-month6-microservices.zip`](submission/lakshitha-wijerathne-month6-microservices.zip) | POC code: 3 services, Kong gateway, Docker Compose, demo script | [download](https://github.com/lakshitha-dev/RBT-month6/raw/main/submission/lakshitha-wijerathne-month6-microservices.zip) |
+| [`lakshitha-wijerathne-month6-presentation.pdf`](submission/lakshitha-wijerathne-month6-presentation.pdf) | Slides | [download](https://github.com/lakshitha-dev/RBT-month6/raw/main/submission/lakshitha-wijerathne-month6-presentation.pdf) |
+
+The same content is browsable unzipped in this repository:
+
+| Evaluation criterion | Where to look |
+|---|---|
+| System Design (30) | [Design document](docs/lakshitha-wijerathne-month6-system-design.md): requirements & capacity (§2–3), architecture (§4–7), feed deep dive (§8), scalability (§10), trade-offs (§16), 10× scale (§17); [ADRs](docs/adr/) |
+| C4 Documentation (25) | [L1 context](docs/c4/png/L1-context.png) · [L2 containers](docs/c4/png/L2-container.png) · [L3 feed components](docs/c4/png/L3-feed-components.png); sources in [`docs/c4/`](docs/c4/) |
+| Microservices POC (20) | [`services/`](services/), [`gateway/kong.yml`](gateway/kong.yml), [`docker-compose.yml`](docker-compose.yml); see [Run it](#run-it) |
+| Presentation (15) | [Slides (PDF)](docs/presentation/slides.pdf), [talking points](docs/presentation/talking-points.md), [Q&A prep](docs/presentation/qa-prep.md) |
+
+## Repository contents
+
 | Deliverable | Location |
 |---|---|
 | System design document | [`docs/lakshitha-wijerathne-month6-system-design.md`](docs/lakshitha-wijerathne-month6-system-design.md) |
